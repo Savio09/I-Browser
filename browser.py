@@ -3,21 +3,31 @@ import socket
 
 class URL:
     def __init__(self, url):
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https"]
-        if self.scheme == "https":
-            self.port = 443
-        elif self.scheme == "http":
-            self.port = 80
-        if "/" not in url:
-            url = url + "/"
-        self.host, url = url.split("/", 1)
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
-            self.port = int(port)
-        self.path = "/" + url
+        if "://" not in url:
+            self.scheme, url = url.split(":", 1)
+            assert self.scheme == "data"
+            self.media_type, self.payload = url.split(",", 1)
+        else:
+            self.scheme, url = url.split("://", 1)
+            assert self.scheme in ["http", "https", "file"]
+            if self.scheme == "https":
+                self.port = 443
+            elif self.scheme == "http":
+                self.port = 80
+            if "/" not in url:
+                url = url + "/"
+            self.host, url = url.split("/", 1)
+            if ":" in self.host:
+                self.host, port = self.host.split(":", 1)
+                self.port = int(port)
+            self.path = "/" + url
 
     def request(self):
+        if self.scheme == "file":
+            with open(self.path, "r") as file:
+                return file.read()
+        if self.scheme == "data":
+            return self.payload
         s = socket.socket(
             family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP
         )
@@ -80,4 +90,7 @@ def load(url):
 if __name__ == "__main__":
     import sys
 
-    load(URL(sys.argv[1]))
+    if len(sys.argv) != 2:
+        load(URL("file:///Users/fdeclan/Public/browser_from_scratch/this.txt"))
+    else:
+        load(URL(sys.argv[1]))

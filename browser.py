@@ -1,9 +1,38 @@
 import socket
+import time
 
 # open connections kept alive between requests, keyed by (scheme, host, port)
 open_sockets = {}
 # how many redirects in a row one page load may follow
 MAX_REDIRECTS = 5
+# saved responses, keyed by (scheme, host, port, path).
+# each value is (content, expires_at); expires_at is None for "never expires"
+BROWSER_CACHE = {}
+
+
+def cache_policy(status, response_headers):
+    """Decide whether a response may be cached, and for how long.
+
+    Returns (should_cache, max_age), where max_age is in seconds,
+    or None when the response doesn't say how long it stays fresh.
+    """
+    # only 200 responses are cached (our browser only sends GET requests)
+    if status != 200:
+        return False, None
+    if "cache-control" not in response_headers:
+        return True, None
+    max_age = None
+    for directive in response_headers["cache-control"].split(","):
+        directive = directive.strip().casefold()
+        if directive.startswith("max-age="):
+            value = directive[len("max-age=") :]
+            if not value.isdigit():
+                return False, None
+            max_age = int(value)
+        else:
+            # no-store, or any directive we don't support: don't cache
+            return False, None
+    return True, max_age
 
 
 class URL:
@@ -40,10 +69,20 @@ class URL:
             return self.payload
         if self.scheme == "view-source":
             return self.view_source_url.request()
-        key = (self.scheme, self.host, self.port)
-        if key in open_sockets:
+
+        cache_key = (self.scheme, self.host, self.port, self.path)
+        if cache_key in BROWSER_CACHE:
+            content, expires_at = BROWSER_CACHE[cache_key]
+            if expires_at is None or time.time() < expires_at:
+                # fresh copy saved: no need to contact the server at all
+                return content
+            # expired: forget it and fetch a new copy below
+            del BROWSER_CACHE[cache_key]
+
+        socket_key = (self.scheme, self.host, self.port)
+        if socket_key in open_sockets:
             # same server as an earlier request: reuse its connection
-            s = open_sockets[key]
+            s = open_sockets[socket_key]
         else:
             s = socket.socket(
                 family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP
@@ -54,7 +93,7 @@ class URL:
 
                 ctx = ssl.create_default_context()
                 s = ctx.wrap_socket(s, server_hostname=self.host)
-            open_sockets[key] = s
+            open_sockets[socket_key] = s
         request = "GET {} HTTP/1.1\r\n".format(self.path)
         request_headers = {
             "Host": self.host,
@@ -77,6 +116,7 @@ class URL:
         response_headers = {}
         while True:
             line = response.readline().decode("utf-8")
+            print(line)
             if line == "\r\n":
                 break
             header, value = line.split(":", 1)
@@ -101,6 +141,11 @@ class URL:
                 )
             # follow the redirect, with one fewer left for the rest of the chain
             return URL(new_location).request(redirects_left - 1)
+
+        should_cache, max_age = cache_policy(int(status), response_headers)
+        if should_cache:
+            expires_at = None if max_age is None else time.time() + max_age
+            BROWSER_CACHE[cache_key] = (content, expires_at)
 
         return content
 

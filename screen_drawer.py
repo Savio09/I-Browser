@@ -1,13 +1,32 @@
+import functools
+import os
 import tkinter as tk
 
 from browser import URL, lex
 
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
-# a newline moves down more than a normal line, to suggest paragraph breaks
+
 NEWLINE_STEP = int(VSTEP * 1.5)
 SCROLL_STEP = 100
 SCROLLBAR_WIDTH = 10
+
+EMOJI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openmoji")
+VARIATION_SELECTOR = "\ufe0f"
+
+
+@functools.lru_cache(maxsize=None)
+def emoji_path(c):
+    """Path of the emoji image for character c, or None if c isn't an emoji.
+
+    Cached, because it's asked again for the same characters on every redraw.
+    """
+    # plain ASCII is never an emoji (OpenMoji even has an image for "-")
+    if ord(c) < 128:
+        return None
+    # e.g. "😀" -> code point 0x1F600 -> "1F600.png"; "©" -> "00A9.png"
+    path = os.path.join(EMOJI_DIR, f"{ord(c):04X}.png")
+    return path if os.path.exists(path) else None
 
 
 class Browser:
@@ -18,6 +37,9 @@ class Browser:
         # page text and its laid-out characters; empty until load() runs
         self.text = ""
         self.display_list = []
+        # loaded emoji images, by file path. Keeping them here also keeps them
+        # alive: Tk deletes an image once Python no longer references it.
+        self.images = {}
         self.window = tk.Tk()
         self.canvas = tk.Canvas(
             self.window,
@@ -54,8 +76,18 @@ class Browser:
                 continue
             if y + VSTEP < self.scroll:
                 continue
-            self.canvas.create_text(x, y - self.scroll, text=c)
+            path = emoji_path(c)
+            if path:
+                self.canvas.create_image(x, y - self.scroll, image=self.get_image(path))
+            else:
+                self.canvas.create_text(x, y - self.scroll, text=c)
         self.draw_scrollbar()
+
+    def get_image(self, path):
+        # load each emoji from disk only once, then reuse it
+        if path not in self.images:
+            self.images[path] = tk.PhotoImage(file=path)
+        return self.images[path]
 
     def draw_scrollbar(self):
         doc_height = self.doc_height()
@@ -101,11 +133,8 @@ class Browser:
         self.draw()
 
     def load(self, url):
-        # fetch the page with browser.py, strip the tags, then draw the text
         body = url.request()
-        # keep the text so it can be laid out again when the window is resized
         self.text = lex(body)
-        # leave room at the right edge for the scrollbar
         self.display_list = layout(self.text, self.width - SCROLLBAR_WIDTH)
         self.draw()
 
@@ -115,10 +144,11 @@ def layout(text, width):
     cursor_x, cursor_y = HSTEP, VSTEP
     for c in text:
         if c == "\n":
-            # end the current line: back to the left edge, one step down
             cursor_x = HSTEP
             cursor_y += NEWLINE_STEP
-            continue  # nothing to draw, and don't move cursor_x forward
+            continue 
+        if c == VARIATION_SELECTOR:
+            continue 
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
 

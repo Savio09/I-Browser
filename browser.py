@@ -93,29 +93,32 @@ def read_body(response, response_headers):
 
 class URL:
     def __init__(self, url):
-        if url.startswith("view-source:"):
-            self.scheme = "view-source"
-            # recursively parse the URL after "view-source:"
-            self.view_source_url = URL(url[len("view-source:") :])
-        elif "://" not in url:
-            self.scheme, url = url.split(":", 1)
-            assert self.scheme in ["data"]
-            if self.scheme == "data":
-                self.media_type, self.payload = url.split(",", 1)
-        else:
-            self.scheme, url = url.split("://", 1)
-            assert self.scheme in ["http", "https", "file"]
-            if self.scheme == "https":
-                self.port = 443
-            elif self.scheme == "http":
-                self.port = 80
-            if "/" not in url:
-                url = url + "/"
-            self.host, url = url.split("/", 1)
-            if ":" in self.host:
-                self.host, port = self.host.split(":", 1)
-                self.port = int(port)
-            self.path = "/" + url
+        try:
+            if url.startswith("view-source:"):
+                self.scheme = "view-source"
+                # recursively parse the URL after "view-source:"
+                self.view_source_url = URL(url[len("view-source:") :])
+            elif "://" not in url:
+                self.scheme, url = url.split(":", 1)
+                assert self.scheme in ["data", "about"]
+                if self.scheme == "data":
+                    self.media_type, self.payload = url.split(",", 1)
+            else:
+                self.scheme, url = url.split("://", 1)
+                assert self.scheme in ["http", "https", "file"]
+                if self.scheme == "https":
+                    self.port = 443
+                elif self.scheme == "http":
+                    self.port = 80
+                if "/" not in url:
+                    url = url + "/"
+                self.host, url = url.split("/", 1)
+                if ":" in self.host:
+                    self.host, port = self.host.split(":", 1)
+                    self.port = int(port)
+                self.path = "/" + url
+        except (ValueError, AssertionError):
+            self.scheme = "about"
 
     def request(self, redirects_left=MAX_REDIRECTS):
         if self.scheme == "file":
@@ -125,6 +128,8 @@ class URL:
             return self.payload
         if self.scheme == "view-source":
             return self.view_source_url.request()
+        if self.scheme == "about":
+            return ""
 
         cache_key = (self.scheme, self.host, self.port, self.path)
         if cache_key in BROWSER_CACHE:

@@ -2,6 +2,8 @@ import socket
 
 # open connections kept alive between requests, keyed by (scheme, host, port)
 open_sockets = {}
+# how many redirects in a row one page load may follow
+MAX_REDIRECTS = 5
 
 
 class URL:
@@ -30,7 +32,7 @@ class URL:
                 self.port = int(port)
             self.path = "/" + url
 
-    def request(self):
+    def request(self, redirects_left=MAX_REDIRECTS):
         if self.scheme == "file":
             with open(self.path, "r", encoding="utf-8") as file:
                 return file.read()
@@ -84,8 +86,22 @@ class URL:
         print("Response headers:", response_headers)
         assert "content-length" in response_headers
         content_length = int(response_headers["content-length"])
-        # read exactly the body's bytes, then turn them into text for show()
+        # read exactly the body's bytes, then turn them into text for show().
+        # this also runs for redirects, so no leftover bytes stay in the
+        # kept-alive socket to confuse the next request.
         content = response.read(content_length).decode("utf-8")
+
+        if 300 <= int(status) < 400 and "location" in response_headers:
+            assert redirects_left > 0, "too many redirects in a row"
+            new_location = response_headers["location"]
+            if new_location.startswith("/"):
+                # same scheme, host and port as this request
+                new_location = "{}://{}:{}{}".format(
+                    self.scheme, self.host, self.port, new_location
+                )
+            # follow the redirect, with one fewer left for the rest of the chain
+            return URL(new_location).request(redirects_left - 1)
+
         return content
 
 
@@ -115,6 +131,15 @@ def show(body):
 
 
 def load(url):
+    print(
+        url.scheme,
+        url.host if hasattr(url, "host") else "",
+        url.path if hasattr(url, "path") else "",
+        url.media_type if hasattr(url, "media_type") else "",
+        url.payload if hasattr(url, "payload") else "",
+        url.view_source_url if hasattr(url, "view_source_url") else "",
+        url.port if hasattr(url, "port") else "",
+    )
     body = url.request()
     if url.scheme == "view-source":
         print(body)

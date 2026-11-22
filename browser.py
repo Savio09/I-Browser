@@ -1,3 +1,4 @@
+import gzip
 import socket
 import time
 
@@ -33,6 +34,61 @@ def cache_policy(status, response_headers):
             # no-store, or any directive we don't support: don't cache
             return False, None
     return True, max_age
+
+
+def read_chunked(response):
+    """Read a body sent with Transfer-Encoding: chunked; return its bytes.
+
+    Each chunk is a hex size line, that many bytes of data, then \\r\\n.
+    A chunk of size 0 marks the end.
+    """
+    chunks = []
+    while True:
+        size_line = response.readline().decode("utf-8")
+        # the size is hexadecimal; ignore any ";extension" after it
+        size = int(size_line.split(";", 1)[0].strip(), 16)
+        if size == 0:
+            break
+        chunks.append(response.read(size))
+        response.readline()  # the \r\n after each chunk's data
+    # skip any trailer headers, up to the empty line that ends the body.
+    # leaving these bytes in the socket would break the next kept-alive request.
+    while response.readline() not in (b"\r\n", b""):
+        pass
+    return b"".join(chunks)
+
+
+def read_body(response, response_headers):
+    """Read the body from response and undo all encodings; return raw bytes.
+
+    Transfer-Encoding (how the bytes were packaged for this transfer) is
+    undone first, then Content-Encoding (how the content itself is stored).
+    """
+    # e.g. "gzip, chunked" means gzip was applied first, then chunked
+    transfer_encodings = [
+        encoding.strip().casefold()
+        for encoding in response_headers.get("transfer-encoding", "").split(",")
+        if encoding.strip()
+    ]
+    if transfer_encodings and transfer_encodings[-1] == "chunked":
+        body = read_chunked(response)
+        transfer_encodings.pop()
+    else:
+        assert "content-length" in response_headers
+        # read exactly the body's bytes, so nothing is left in the socket
+        body = response.read(int(response_headers["content-length"]))
+    # undo the remaining transfer encodings in reverse order
+    for encoding in reversed(transfer_encodings):
+        assert encoding == "gzip", "unsupported transfer encoding: " + encoding
+        body = gzip.decompress(body)
+
+    content_encoding = response_headers.get("content-encoding", "").strip().casefold()
+    if content_encoding:
+        assert content_encoding == "gzip", (
+            "unsupported content encoding: " + content_encoding
+        )
+        body = gzip.decompress(body)
+    return body
 
 
 class URL:
@@ -99,6 +155,7 @@ class URL:
             "Host": self.host,
             "User-Agent": "Browser/0.1",
             "Connection": "keep-alive",
+            "Accept-Encoding": "gzip",
         }
 
         for request_header, value in request_headers.items():
@@ -121,15 +178,11 @@ class URL:
                 break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
-        assert "transfer-encoding" not in response_headers
-        assert "content-encoding" not in response_headers
         print("Response headers:", response_headers)
-        assert "content-length" in response_headers
-        content_length = int(response_headers["content-length"])
-        # read exactly the body's bytes, then turn them into text for show().
-        # this also runs for redirects, so no leftover bytes stay in the
-        # kept-alive socket to confuse the next request.
-        content = response.read(content_length).decode("utf-8")
+        # read the whole body (also for redirects, so no leftover bytes stay in
+        # the kept-alive socket), undo chunking and gzip, then turn it into text.
+        # decoding to text must come last: compressed data isn't valid utf-8.
+        content = read_body(response, response_headers).decode("utf-8")
 
         if 300 <= int(status) < 400 and "location" in response_headers:
             assert redirects_left > 0, "too many redirects in a row"

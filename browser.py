@@ -203,9 +203,10 @@ class URL:
         return content
 
 
-def show(body):
+def lex(body):
     in_tag = False
     i = 0
+    text = ""
     entity_map = {"&lt;": "<", "&gt;": ">", "&amp;": "&"}
     while i < len(body):
         c = body[i]
@@ -218,14 +219,15 @@ def show(body):
             if c == "&":
                 for entity, char in entity_map.items():
                     if body[i : i + len(entity)] == entity:
-                        print(char, end="")
+                        text += char
                         i += len(entity)  # jump past the whole entity
                         matched = True
                         break
             if matched:
                 continue  # i already moved; skip the i += 1 below
-            print(c, end="")
+            text += c
         i += 1
+    return text
 
 
 def load(url):
@@ -242,7 +244,7 @@ def load(url):
     if url.scheme == "view-source":
         print(body)
     else:
-        show(body)
+        print(lex(body))
 
 
 if __name__ == "__main__":

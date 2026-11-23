@@ -38,10 +38,11 @@ class Layout:
         self.weight = "normal"
         self.style = "roman"
         self.size = 12
-        # words on the current line, as (x, word, font). They get their y,
-        # and go into display_list, when flush() ends the line.
+        # words on the current line, as (x, word, font, sup). They get their
+        # y, and go into display_list, when flush() ends the line.
         self.line = []
         self.center = False
+        self.sup = False
         for tok in tokens:
             self.token(tok)
         # place whatever is left on the last line
@@ -78,9 +79,16 @@ class Layout:
         elif tok.tag == "/h1":
             self.flush()
             self.center = False
+        elif tok.tag == "sup":
+            self.sup = True
+        elif tok.tag == "/sup":
+            self.sup = False
 
     def word(self, word):
-        font = get_font(self.size, self.weight, self.style)
+        # superscripts are half size. Pick the size before making the font,
+        # so the width below is measured with the font that gets drawn.
+        size = self.size // 2 if self.sup else self.size
+        font = get_font(size, self.weight, self.style)
         word = word.replace(VARIATION_SELECTOR, "")
         if not word:
             return
@@ -88,25 +96,31 @@ class Layout:
         # the word doesn't fit: finish this line, so the word starts the next
         if self.cursor_x + w >= self.width - HSTEP:
             self.flush()
-        self.line.append((self.cursor_x, word, font))
+        # keep the superscript flag with the word: by the time flush() runs,
+        # self.sup may already have been switched off by </sup>
+        self.line.append((self.cursor_x, word, font, self.sup))
         self.cursor_x += w + font.measure(" ")
 
     def flush(self):
         if not self.line:
             return
-        metrics = [font.metrics() for x, word, font in self.line]
+        metrics = [font.metrics() for x, word, font, sup in self.line]
         max_ascent = max([metric["ascent"] for metric in metrics])
         baseline = self.cursor_y + 1.25 * max_ascent
         offset = 0
+
         if self.center:
-            last_x, last_word, last_font = self.line[-1]
+            last_x, last_word, last_font, _ = self.line[-1]
             line_width = last_x + last_font.measure(last_word) - HSTEP
-            # split the leftover room between the two sides. max(0, ...) keeps
-            # a word wider than the window from going past the left margin.
             offset = max(0, (self.width - 2 * HSTEP - line_width) / 2)
 
-        for x, word, font in self.line:
-            y = baseline - font.metrics("ascent")
+        for x, word, font, sup in self.line:
+            if sup:
+                # top of the superscript level with the top of the normal text
+                y = baseline - max_ascent
+            else:
+                # bottom of the word on the baseline
+                y = baseline - font.metrics("ascent")
             self.display_list.append((x + offset, y, word, font))
         max_descent = max([metric["descent"] for metric in metrics])
         self.cursor_y += 1.5 * (max_ascent + max_descent)

@@ -1,6 +1,8 @@
 import gzip
 import socket
 import time
+from utils.tag import Tag
+from utils.text import Text
 
 # open connections kept alive between requests, keyed by (scheme, host, port)
 open_sockets = {}
@@ -209,30 +211,44 @@ class URL:
 
 
 def lex(body):
+    """Split HTML into a list of tokens: Text for page text, Tag for tags."""
     in_tag = False
     i = 0
-    text = ""
+    # the token being collected: text so far, or the inside of the current tag
+    buffer = ""
+    out = []
     entity_map = {"&lt;": "<", "&gt;": ">", "&amp;": "&"}
     while i < len(body):
         c = body[i]
         if c == "<":
             in_tag = True
-        elif c == ">":
+            if buffer:
+                out.append(Text(buffer))
+            buffer = ""
+        elif c == ">" and in_tag:
             in_tag = False
-        elif not in_tag:
+            out.append(Tag(buffer))
+            buffer = ""
+        elif in_tag:
+            # inside a tag: keep the characters as they are (no entities)
+            buffer += c
+        else:
             matched = False
             if c == "&":
                 for entity, char in entity_map.items():
                     if body[i : i + len(entity)] == entity:
-                        text += char
+                        buffer += char
                         i += len(entity)  # jump past the whole entity
                         matched = True
                         break
             if matched:
                 continue  # i already moved; skip the i += 1 below
-            text += c
+            buffer += c
         i += 1
-    return text
+    # text after the last tag. A tag that never closed is dropped.
+    if not in_tag and buffer:
+        out.append(Text(buffer))
+    return out
 
 
 def load(url):
@@ -249,7 +265,8 @@ def load(url):
     if url.scheme == "view-source":
         print(body)
     else:
-        print(lex(body))
+        # print only the page text, without the tags
+        print("".join(tok.text for tok in lex(body) if isinstance(tok, Text)))
 
 
 if __name__ == "__main__":

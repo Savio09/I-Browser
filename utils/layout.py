@@ -41,6 +41,7 @@ class Layout:
         # words on the current line, as (x, word, font). They get their y,
         # and go into display_list, when flush() ends the line.
         self.line = []
+        self.center = False
         for tok in tokens:
             self.token(tok)
         # place whatever is left on the last line
@@ -71,6 +72,12 @@ class Layout:
         elif tok.tag == "/p":
             self.flush()
             self.cursor_y += VSTEP
+        elif tok.tag == 'h1 class="title"':
+            self.flush()
+            self.center = True
+        elif tok.tag == "/h1":
+            self.flush()
+            self.center = False
 
     def word(self, word):
         font = get_font(self.size, self.weight, self.style)
@@ -90,10 +97,17 @@ class Layout:
         metrics = [font.metrics() for x, word, font in self.line]
         max_ascent = max([metric["ascent"] for metric in metrics])
         baseline = self.cursor_y + 1.25 * max_ascent
+        offset = 0
+        if self.center:
+            last_x, last_word, last_font = self.line[-1]
+            line_width = last_x + last_font.measure(last_word) - HSTEP
+            # split the leftover room between the two sides. max(0, ...) keeps
+            # a word wider than the window from going past the left margin.
+            offset = max(0, (self.width - 2 * HSTEP - line_width) / 2)
 
         for x, word, font in self.line:
             y = baseline - font.metrics("ascent")
-            self.display_list.append((x, y, word, font))
+            self.display_list.append((x + offset, y, word, font))
         max_descent = max([metric["descent"] for metric in metrics])
         self.cursor_y += 1.5 * (max_ascent + max_descent)
         self.cursor_x = HSTEP

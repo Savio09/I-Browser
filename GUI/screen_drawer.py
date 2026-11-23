@@ -1,20 +1,17 @@
 import functools
 import os
 import tkinter as tk
-import tkinter.font
 
 from browser import URL, lex
-from utils.text import Text
+from utils.layout import Layout
 
 WIDTH, HEIGHT = 800, 600
-HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
 SCROLLBAR_WIDTH = 10
 
 # the openmoji folder is in the project root, one folder up from GUI/
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EMOJI_DIR = os.path.join(PROJECT_DIR, "openmoji")
-VARIATION_SELECTOR = "\ufe0f"
 
 
 @functools.lru_cache(maxsize=None)
@@ -139,7 +136,9 @@ class Browser:
         self.width = event.width
         self.height = event.height
         # leave room at the right edge for the scrollbar
-        self.display_list = layout(self.tokens, self.width - SCROLLBAR_WIDTH)
+        self.display_list = Layout(
+            self.tokens, self.width - SCROLLBAR_WIDTH
+        ).display_list
         # a taller window or a re-wrapped page can move the bottom limit
         self.clamp_scroll()
         self.draw()
@@ -147,42 +146,10 @@ class Browser:
     def load(self, url):
         body = url.request()
         self.tokens = lex(body)
-        self.display_list = layout(self.tokens, self.width - SCROLLBAR_WIDTH)
+        self.display_list = Layout(
+            self.tokens, self.width - SCROLLBAR_WIDTH
+        ).display_list
         self.draw()
-
-
-def layout(tokens, width):
-    """Place each word of the page; return a list of (x, y, word, font).
-
-    draw() uses the font stored with each word, so the widths measured here
-    match what appears on screen.
-    """
-    display_list = []
-    cursor_x, cursor_y = HSTEP, VSTEP
-    weight, style = "normal", "roman"
-    for tok in tokens:
-        if not isinstance(tok, Text):
-            if tok.tag == "i":
-                style = "italic"
-            elif tok.tag == "/i":
-                style = "roman"
-            elif tok.tag == "b":
-                weight = "bold"
-            elif tok.tag == "/b":
-                weight = "normal"
-        else:
-            for word in tok.text.split():
-                font = tk.font.Font(size=16, weight=weight, slant=style)
-                word = word.replace(VARIATION_SELECTOR, "")
-                if not word:
-                    continue
-                w = font.measure(word)
-                if cursor_x + w >= width - HSTEP:
-                    cursor_x = HSTEP
-                    cursor_y += font.metrics("linespace") * 1.5
-                display_list.append((cursor_x, cursor_y, word, font))
-                cursor_x += w + font.measure(" ")
-    return display_list
 
 
 if __name__ == "__main__":

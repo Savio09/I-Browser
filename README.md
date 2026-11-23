@@ -9,7 +9,17 @@ To be creative means to find association between disconnected facets of informat
 Chapter 1: Downloading Web Pages
 
 - Wrote the bare metal implementation of the browser on 11/19/2026: wrote the parsing logic for what the server returns, adjusted the browser for several schemes.
-- 11/20/2026: Eliminated close connection from request header, and implemente
+- 11/20/2026: Eliminated close connection from request header, and implemented HTTP/1.1 requests with a headers dictionary, the data and file schemes, entity decoding for `&lt;`, `&gt;` and `&amp;`, and the view-source scheme.
 - 11/21/2026: Wrote the redirection logic, reusable socket logic using _scheme, host, port_ as key for same server, implemented browser side caching logic, and finally ended with compressed data by setting the Accept-Encoding header in the browser.
 
-NOTE: My browser currently just downloads pages from the internet and renders them on the terminal
+Chapter 2: Drawing to the Screen
+
+- 11/22/2026: Added a GUI with Tkinter that draws the page text onto a canvas, wraps it into lines, and scrolls with the arrow keys, mouse wheel and trackpad. Made newlines in the response start new lines, made the window resizable so the text re-wraps to the new width, and added a scrollbar that shows how far down the page you are.
+- 11/22/2026: Rendered emoji as OpenMoji images, added the _about:blank_ URL, and made malformed URLs fall back to a blank page instead of crashing the browser.
+
+Chapter 3: Formatting Text
+
+- 11/22/2026: Changed the lexer to split the response into _Text_ and _Tag_ tokens, laid out whole words instead of single characters by measuring them with Tk fonts, and added bold and italic text with the _b_ and _i_ tags. Split the code into _GUI/_ and _utils/_ folders.
+- 11/23/2026: Moved layout into its own _Layout_ class, added text sizes with the _small_ and _big_ tags, lined up words of different sizes on a shared baseline, started new lines on _br_ and new paragraphs on _/p_, and added a font cache so each font is only created once.
+
+NOTE: My browser now opens pages in its own window: it downloads them, lays out the text with bold, italic and different sizes, and lets you scroll. Run it from the project root with `python3 -m GUI.screen_drawer <url>`.
